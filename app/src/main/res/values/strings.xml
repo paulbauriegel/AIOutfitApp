@@ -1,7 +1,9 @@
 <resources>
     <string name="app_name">AI Outfit</string>
     <string name="nav_clothes">Clothes</string>
+    <string name="nav_planner">Planner</string>
     <string name="nav_outfits">Outfits</string>
+    <string name="nav_inspiration">Inspiration</string>
     <string name="settings_title">Settings</string>
     <string name="preferences_title">Preferences</string>
     <string name="primary_color">Primary color</string>
@@ -25,6 +27,11 @@
     <string name="face_photo">Face photo</string>
     <string name="add_photo">Add photo</string>
     <string name="photo_set">Photo set</string>
+    <string name="gender">Gender</string>
+    <string name="add_gender">Add gender</string>
+    <string name="gender_male">Male</string>
+    <string name="gender_female">Female</string>
+    <string name="gender_diverse">Diverse</string>
     <string name="eye_color">Eye color</string>
     <string name="hair_color">Hair color</string>
     <string name="add_eye_color">Add eye color</string>
@@ -37,12 +44,24 @@
     <string name="creating_outfit_inspiration">Creating outfit…</string>
     <string name="inspiration_failed">Could not create outfit inspiration</string>
     <string name="inspiration_no_items">No usable clothing items were returned</string>
+    <string name="wardrobe_gap_title">Missing wardrobe pieces</string>
+    <string name="wardrobe_gap_ready">Ask AI what type of clothing would make your wardrobe more complete.</string>
+    <string name="wardrobe_gap_empty_key">Set an OpenAI API key in Settings to analyze wardrobe gaps.</string>
+    <string name="wardrobe_gap_empty_clothes">Add clothing items before analyzing wardrobe gaps.</string>
+    <string name="analyze_wardrobe_gaps">Analyze wardrobe gaps</string>
+    <string name="analyzing_wardrobe_gaps">Analyzing wardrobe…</string>
+    <string name="wardrobe_gap_result_title">Wardrobe gaps</string>
+    <string name="wardrobe_gap_failed">Could not analyze wardrobe gaps</string>
     <string name="deduplicate_outfits_title">Deduplicate outfits</string>
     <string name="deduplicate_outfits_body">Find exact duplicates and similar outfits where one contains all items from another.</string>
     <string name="deduplicate_outfits_action">Deduplicate outfits</string>
     <string name="deduplicate_outfits_none">No duplicate or similar outfits found</string>
     <string name="deduplicate_outfits_count">%1$d outfit cleanup suggestions found</string>
     <string name="deduplicate_outfits_done">Removed %1$d duplicate outfits</string>
+    <string name="exact_outfits_title">Duplicate outfits found</string>
+    <string name="exact_outfits_body">These outfits use the same clothing items. Check their details and choose one to delete, or keep both if they mean different things.</string>
+    <string name="exact_outfit_first">First outfit</string>
+    <string name="exact_outfit_second">Second outfit</string>
     <string name="subset_outfits_title">Similar outfits found</string>
     <string name="subset_outfits_body">One outfit is a subset of the other. Choose one to delete, or keep both if they are intentionally different.</string>
     <string name="subset_outfit_smaller">Fewer items</string>
@@ -78,6 +97,7 @@
     <string name="custom_categories_subtitle">Add and manage your own</string>
     <string name="about_ai_outfit">About AI Outfit</string>
     <string name="app_version">Version 1.0.0</string>
+    <string name="close">Close</string>
     <string name="make_it_your_way">Make it your way</string>
     <string name="custom_categories_description">Create custom categories that fit your wardrobe and style.</string>
     <string name="no_custom_categories">No custom categories yet.</string>

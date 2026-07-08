@@ -17,6 +17,7 @@ public class WardrobeStore {
     private static final String PREFS = "wardrobe";
     private static final String KEY_CLOTHES = "clothes";
     private static final String KEY_OUTFITS = "outfits";
+    private static final String KEY_PLANNER_ENTRIES = "plannerEntries";
     private static final String KEY_CATEGORIES = "categories";
     private static final String KEY_CURRENCY = "currency";
     private static final String KEY_PRIMARY_COLOR = "primaryColor";
@@ -25,6 +26,7 @@ public class WardrobeStore {
     private static final String KEY_OPENAI_MODEL = "openAiModel";
     private static final String KEY_PROFILE_BODY_IMAGE = "profileBodyImage";
     private static final String KEY_PROFILE_FACE_IMAGE = "profileFaceImage";
+    private static final String KEY_PROFILE_GENDER = "profileGender";
     private static final String KEY_PROFILE_EYE_COLOR = "profileEyeColor";
     private static final String KEY_PROFILE_HAIR_COLOR = "profileHairColor";
     private static final String DEFAULT_OPENAI_BASE_URL = "https://eu.api.openai.com/v1";
@@ -79,6 +81,32 @@ public class WardrobeStore {
             }
         }
         prefs.edit().putString(KEY_OUTFITS, array.toString()).apply();
+    }
+
+    public List<PlannerEntry> loadPlannerEntries() {
+        List<PlannerEntry> entries = new ArrayList<>();
+        JSONArray array = readArray(KEY_PLANNER_ENTRIES);
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject json = array.optJSONObject(i);
+            if (json != null) {
+                PlannerEntry entry = PlannerEntry.fromJson(json);
+                if (entry.dateKey != null && !entry.dateKey.trim().isEmpty()) {
+                    entries.add(entry);
+                }
+            }
+        }
+        return entries;
+    }
+
+    public void savePlannerEntries(List<PlannerEntry> entries) {
+        JSONArray array = new JSONArray();
+        for (PlannerEntry entry : entries) {
+            try {
+                array.put(entry.toJson());
+            } catch (JSONException ignored) {
+            }
+        }
+        prefs.edit().putString(KEY_PLANNER_ENTRIES, array.toString()).apply();
     }
 
     public List<String> loadCategories() {
@@ -166,6 +194,14 @@ public class WardrobeStore {
 
     public void saveProfileFaceImage(String uri) {
         prefs.edit().putString(KEY_PROFILE_FACE_IMAGE, uri == null ? "" : uri.trim()).apply();
+    }
+
+    public String loadProfileGender() {
+        return prefs.getString(KEY_PROFILE_GENDER, "");
+    }
+
+    public void saveProfileGender(String gender) {
+        prefs.edit().putString(KEY_PROFILE_GENDER, gender == null ? "" : gender.trim()).apply();
     }
 
     public String loadProfileEyeColor() {

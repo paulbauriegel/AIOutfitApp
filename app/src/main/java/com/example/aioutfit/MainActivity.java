@@ -129,6 +129,38 @@ public class MainActivity extends Activity {
             new ColorOption("Lavender", 0xFFC99BE2),
             new ColorOption("Magenta", 0xFFD21DCE)
     };
+    private static final ColorOption[] EYE_COLORS = {
+            new ColorOption("Light blue", 0xFFA8D8F0),
+            new ColorOption("Blue", 0xFF3A79B8),
+            new ColorOption("Gray blue", 0xFF7F9AA8),
+            new ColorOption("Gray", 0xFF8E9693),
+            new ColorOption("Green", 0xFF5F8F4E),
+            new ColorOption("Hazel", 0xFF8A7A35),
+            new ColorOption("Amber", 0xFFC27A22),
+            new ColorOption("Light brown", 0xFF9A642D),
+            new ColorOption("Brown", 0xFF5E351E),
+            new ColorOption("Dark brown", 0xFF2E1D14),
+            new ColorOption("Black", 0xFF101010)
+    };
+    private static final ColorOption[] HAIR_COLORS = {
+            new ColorOption("Black", 0xFF111111),
+            new ColorOption("Dark brown", 0xFF2D1B12),
+            new ColorOption("Brown", 0xFF5A321D),
+            new ColorOption("Light brown", 0xFF8C5A32),
+            new ColorOption("Dark blonde", 0xFFA17B43),
+            new ColorOption("Blonde", 0xFFD9BD75),
+            new ColorOption("Platinum blonde", 0xFFE8E0C7),
+            new ColorOption("Auburn", 0xFF7B2E1E),
+            new ColorOption("Copper", 0xFFC35A28),
+            new ColorOption("Red", 0xFFA72B24),
+            new ColorOption("Gray", 0xFF8D8D8D),
+            new ColorOption("Silver", 0xFFC9C9C9),
+            new ColorOption("White", 0xFFF5F2E8),
+            new ColorOption("Blue", 0xFF2457A6),
+            new ColorOption("Pink", 0xFFFF8FA1),
+            new ColorOption("Purple", 0xFF8E4CC7),
+            new ColorOption("Green", 0xFF2E8A4F)
+    };
     private static final CategoryOption[] CATEGORY_OPTIONS = {
             new CategoryOption("Tops", "T-Shirt", R.drawable.ic_cat_tshirt),
             new CategoryOption("Tops", "Polo", R.drawable.ic_cat_polo),
@@ -195,8 +227,10 @@ public class MainActivity extends Activity {
     private WardrobeStore store;
     private final List<ClothingItem> clothes = new ArrayList<>();
     private final List<Outfit> outfits = new ArrayList<>();
+    private final List<PlannerEntry> plannerEntries = new ArrayList<>();
     private final List<String> categories = new ArrayList<>();
     private final Map<String, ClothingItem> itemById = new LinkedHashMap<>();
+    private final Map<String, PlannerEntry> plannerEntryByDate = new LinkedHashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService imageExecutor = Executors.newFixedThreadPool(2);
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
@@ -206,11 +240,17 @@ public class MainActivity extends Activity {
     private FrameLayout bodyHost;
     private LinearLayout content;
     private TextView clothesNavLabel;
+    private TextView plannerNavLabel;
     private TextView outfitsNavLabel;
+    private TextView inspirationNavLabel;
     private View clothesNavIndicator;
+    private View plannerNavIndicator;
     private View outfitsNavIndicator;
+    private View inspirationNavIndicator;
     private LinearLayout clothesNavItem;
+    private LinearLayout plannerNavItem;
     private LinearLayout outfitsNavItem;
+    private LinearLayout inspirationNavItem;
     private String activeTab = "clothes";
     private float swipeStartX;
     private float swipeStartY;
@@ -222,18 +262,23 @@ public class MainActivity extends Activity {
     private String openAiModel = DEFAULT_OPENAI_MODEL;
     private String profileBodyImageUri = "";
     private String profileFaceImageUri = "";
+    private String profileGender = "";
     private String profileEyeColor = "";
     private String profileHairColor = "";
     private ClothingItem imageTarget;
     private ImageView imageTargetView;
     private boolean appendPickedPhoto;
     private int activePhotoIndex;
-    private boolean outfitInspirationTab;
     private boolean outfitInspirationLoading;
+    private boolean wardrobeGapLoading;
     private String outfitFilterCategory = "All";
     private Outfit outfitDraft;
     private Outfit outfitEditingTarget;
     private int outfitFormStep = 1;
+    private boolean plannerMonthMode;
+    private final Calendar plannerAnchor = Calendar.getInstance();
+    private final Calendar plannerSelectedDate = Calendar.getInstance();
+    private String pendingPlannerDateKey = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -245,6 +290,7 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         clothes.addAll(store.loadClothes());
         outfits.addAll(store.loadOutfits());
+        plannerEntries.addAll(store.loadPlannerEntries());
         categories.addAll(store.loadCategories());
         currency = store.loadCurrency();
         openAiApiKey = store.loadOpenAiApiKey();
@@ -252,10 +298,13 @@ public class MainActivity extends Activity {
         openAiModel = store.loadOpenAiModel();
         profileBodyImageUri = store.loadProfileBodyImage();
         profileFaceImageUri = store.loadProfileFaceImage();
+        profileGender = store.loadProfileGender();
         profileEyeColor = store.loadProfileEyeColor();
         profileHairColor = store.loadProfileHairColor();
         initImageCache();
         rebuildItemIndex();
+        rebuildPlannerIndex();
+        normalizePlannerCalendars();
         setContentView(buildRoot());
         renderClothes();
     }
@@ -283,6 +332,22 @@ public class MainActivity extends Activity {
         for (ClothingItem item : clothes) {
             itemById.put(item.id, item);
         }
+    }
+
+    private void rebuildPlannerIndex() {
+        plannerEntryByDate.clear();
+        for (PlannerEntry entry : plannerEntries) {
+            if (!isBlank(entry.dateKey)) {
+                plannerEntryByDate.put(entry.dateKey, entry);
+            }
+        }
+    }
+
+    private void normalizePlannerCalendars() {
+        startOfDay(plannerAnchor);
+        startOfDay(plannerSelectedDate);
+        plannerAnchor.setFirstDayOfWeek(Calendar.MONDAY);
+        plannerSelectedDate.setFirstDayOfWeek(Calendar.MONDAY);
     }
 
     @Override
@@ -416,9 +481,19 @@ public class MainActivity extends Activity {
                 outfitFormStep--;
                 renderOutfitFormStep();
             } else {
+                String plannerDate = pendingPlannerDateKey;
                 clearOutfitDraft();
-                renderOutfits();
+                if (!isBlank(plannerDate)) {
+                    pendingPlannerDateKey = "";
+                    renderPlannerDay(plannerDate);
+                } else {
+                    renderOutfits();
+                }
             }
+            return true;
+        }
+        if (activeTab.equals("plannerDay")) {
+            renderPlanner();
             return true;
         }
         if (activeTab.equals("customCategories")) {
@@ -553,12 +628,16 @@ public class MainActivity extends Activity {
         nav.setGravity(Gravity.CENTER);
         nav.setPadding(dp(18), dp(8), dp(18), dp(8));
         nav.setBackground(rounded(surfaceDialog, 0, palette.outlineVariant(), 1));
-        clothesNavItem = navItem(getString(R.string.nav_clothes), R.drawable.ic_clothes, v -> renderClothes(), true);
-        outfitsNavItem = navItem(getString(R.string.nav_outfits), R.drawable.ic_outfit, v -> renderOutfits(), false);
+        clothesNavItem = navItem(getString(R.string.nav_clothes), R.drawable.ic_clothes, v -> renderClothes(), "clothes");
+        plannerNavItem = navItem(getString(R.string.nav_planner), R.drawable.ic_planner, v -> renderPlanner(), "planner");
+        outfitsNavItem = navItem(getString(R.string.nav_outfits), R.drawable.ic_outfit, v -> renderOutfits(), "outfits");
+        inspirationNavItem = navItem(getString(R.string.nav_inspiration), R.drawable.ic_inspiration, v -> renderInspiration(), "inspiration");
         nav.addView(clothesNavItem, new LinearLayout.LayoutParams(0, -1, 1));
+        nav.addView(plannerNavItem, new LinearLayout.LayoutParams(0, -1, 1));
         TextView centerGap = new TextView(this);
-        nav.addView(centerGap, new LinearLayout.LayoutParams(dp(92), -1));
+        nav.addView(centerGap, new LinearLayout.LayoutParams(dp(76), -1));
         nav.addView(outfitsNavItem, new LinearLayout.LayoutParams(0, -1, 1));
+        nav.addView(inspirationNavItem, new LinearLayout.LayoutParams(0, -1, 1));
 
         FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(-1, dp(84));
         navParams.gravity = Gravity.BOTTOM;
@@ -571,7 +650,7 @@ public class MainActivity extends Activity {
         return container;
     }
 
-    private LinearLayout navItem(String label, int iconRes, View.OnClickListener listener, boolean clothes) {
+    private LinearLayout navItem(String label, int iconRes, View.OnClickListener listener, String key) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
@@ -579,19 +658,26 @@ public class MainActivity extends Activity {
         item.setOnClickListener(listener);
         ImageView icon = iconView(iconRes);
         item.addView(icon, new LinearLayout.LayoutParams(dp(28), dp(28)));
-        TextView text = text(label, 12, muted, true);
+        TextView text = text(label, 11, muted, true);
         text.setGravity(Gravity.CENTER);
+        text.setSingleLine(true);
         item.addView(text);
         TextView indicator = new TextView(this);
         LinearLayout.LayoutParams indicatorParams = new LinearLayout.LayoutParams(dp(26), dp(3));
         indicatorParams.setMargins(0, dp(3), 0, 0);
         item.addView(indicator, indicatorParams);
-        if (clothes) {
+        if ("clothes".equals(key)) {
             clothesNavLabel = text;
             clothesNavIndicator = indicator;
-        } else {
+        } else if ("planner".equals(key)) {
+            plannerNavLabel = text;
+            plannerNavIndicator = indicator;
+        } else if ("outfits".equals(key)) {
             outfitsNavLabel = text;
             outfitsNavIndicator = indicator;
+        } else {
+            inspirationNavLabel = text;
+            inspirationNavIndicator = indicator;
         }
         return item;
     }
@@ -606,15 +692,25 @@ public class MainActivity extends Activity {
     }
 
     private void updateBottomNavigation() {
-        if (clothesNavLabel == null || outfitsNavLabel == null || clothesNavItem == null || outfitsNavItem == null || clothesNavIndicator == null || outfitsNavIndicator == null) return;
+        if (clothesNavLabel == null || plannerNavLabel == null || outfitsNavLabel == null || inspirationNavLabel == null
+                || clothesNavItem == null || plannerNavItem == null || outfitsNavItem == null || inspirationNavItem == null
+                || clothesNavIndicator == null || plannerNavIndicator == null || outfitsNavIndicator == null || inspirationNavIndicator == null) return;
         boolean clothesActive = activeTab.equals("clothes");
-        boolean outfitsActive = activeTab.equals("outfits") || activeTab.equals("outfitForm");
+        boolean plannerActive = activeTab.equals("planner") || activeTab.equals("plannerDay") || (activeTab.equals("outfitForm") && !isBlank(pendingPlannerDateKey));
+        boolean outfitsActive = activeTab.equals("outfits") || (activeTab.equals("outfitForm") && isBlank(pendingPlannerDateKey));
+        boolean inspirationActive = activeTab.equals("inspiration");
         clothesNavLabel.setTextColor(clothesActive ? ink : muted);
+        plannerNavLabel.setTextColor(plannerActive ? ink : muted);
         outfitsNavLabel.setTextColor(outfitsActive ? ink : muted);
+        inspirationNavLabel.setTextColor(inspirationActive ? ink : muted);
         clothesNavIndicator.setBackground(clothesActive ? rounded(primary, 2, Color.TRANSPARENT, 0) : rounded(Color.TRANSPARENT, 2, Color.TRANSPARENT, 0));
+        plannerNavIndicator.setBackground(plannerActive ? rounded(primary, 2, Color.TRANSPARENT, 0) : rounded(Color.TRANSPARENT, 2, Color.TRANSPARENT, 0));
         outfitsNavIndicator.setBackground(outfitsActive ? rounded(primary, 2, Color.TRANSPARENT, 0) : rounded(Color.TRANSPARENT, 2, Color.TRANSPARENT, 0));
+        inspirationNavIndicator.setBackground(inspirationActive ? rounded(primary, 2, Color.TRANSPARENT, 0) : rounded(Color.TRANSPARENT, 2, Color.TRANSPARENT, 0));
         clothesNavItem.setBackgroundColor(Color.TRANSPARENT);
+        plannerNavItem.setBackgroundColor(Color.TRANSPARENT);
         outfitsNavItem.setBackgroundColor(Color.TRANSPARENT);
+        inspirationNavItem.setBackgroundColor(Color.TRANSPARENT);
     }
 
     private boolean handleMainSwipe(MotionEvent event) {
@@ -624,15 +720,24 @@ public class MainActivity extends Activity {
                 swipeStartY = event.getY();
                 return false;
             case MotionEvent.ACTION_UP:
-                if (!activeTab.equals("clothes") && !activeTab.equals("outfits")) {
+                if (!activeTab.equals("clothes") && !activeTab.equals("planner")
+                        && !activeTab.equals("outfits") && !activeTab.equals("inspiration")) {
                     return false;
                 }
                 float deltaX = event.getX() - swipeStartX;
                 float deltaY = event.getY() - swipeStartY;
                 if (Math.abs(deltaX) > dp(72) && Math.abs(deltaX) > Math.abs(deltaY) * 1.4f) {
                     if (deltaX < 0 && activeTab.equals("clothes")) {
+                        renderPlanner();
+                    } else if (deltaX < 0 && activeTab.equals("planner")) {
+                        renderOutfits();
+                    } else if (deltaX < 0 && activeTab.equals("outfits")) {
+                        renderInspiration();
+                    } else if (deltaX > 0 && activeTab.equals("inspiration")) {
                         renderOutfits();
                     } else if (deltaX > 0 && activeTab.equals("outfits")) {
+                        renderPlanner();
+                    } else if (deltaX > 0 && activeTab.equals("planner")) {
                         renderClothes();
                     }
                     return true;
@@ -659,6 +764,12 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         Dialog[] holder = new Dialog[1];
+        if (activeTab.equals("planner") || activeTab.equals("plannerDay")) {
+            menu.addView(menuRow(R.drawable.ic_planner, "Plan outfit", "Add an outfit to the selected day", v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                showPlannerAddSheet(dateKey(plannerSelectedDate));
+            }));
+        }
         menu.addView(menuRow(R.drawable.ic_add_outfit, "Add outfit", "Combine saved clothes", v -> {
             if (holder[0] != null) holder[0].dismiss();
             renderOutfitForm(null);
@@ -746,6 +857,617 @@ public class MainActivity extends Activity {
         setStickyBar(clothesStickyHeader(), 22);
         updateBottomNavigation();
         useBodyView(clothingGridView(filteredClothes()));
+    }
+
+    private void renderPlanner() {
+        activeTab = "planner";
+        renderTopBar(getString(R.string.nav_planner), false);
+        updateBottomNavigation();
+        useScrollContent();
+        content.removeAllViews();
+        content.setPadding(dp(18), dp(2), dp(18), dp(32));
+        content.addView(plannerModeSwitch());
+        if (plannerMonthMode) {
+            renderPlannerMonth();
+        } else {
+            renderPlannerWeek();
+        }
+    }
+
+    private View plannerModeSwitch() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(12));
+        row.addView(plannerModeButton("Week", !plannerMonthMode), new LinearLayout.LayoutParams(0, dp(44), 1));
+        row.addView(plannerModeButton("Month", plannerMonthMode), new LinearLayout.LayoutParams(0, dp(44), 1));
+        return row;
+    }
+
+    private Button plannerModeButton(String label, boolean active) {
+        Button button = baseButton(label);
+        button.setTextColor(active ? onPrimary : muted);
+        button.setTypeface(button.getTypeface(), Typeface.BOLD);
+        button.setBackground(rounded(active ? primary : Color.TRANSPARENT, 22, active ? Color.TRANSPARENT : palette.outlineVariant, 1));
+        button.setOnClickListener(v -> {
+            plannerMonthMode = "Month".equals(label);
+            renderPlanner();
+        });
+        return button;
+    }
+
+    private void renderPlannerWeek() {
+        content.addView(plannerWeekControls());
+        Calendar start = weekStart(plannerAnchor);
+        for (int i = 0; i < 7; i++) {
+            Calendar day = (Calendar) start.clone();
+            day.add(Calendar.DAY_OF_MONTH, i);
+            content.addView(plannerDayCard(day));
+        }
+    }
+
+    private View plannerWeekControls() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(8));
+        row.addView(iconButton(R.drawable.ic_move_left, v -> {
+            plannerAnchor.add(Calendar.DAY_OF_MONTH, -7);
+            renderPlanner();
+        }), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView range = text(plannerWeekRange(), 15, ink, true);
+        range.setGravity(Gravity.CENTER);
+        row.addView(range, new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(iconButton(R.drawable.ic_move_right, v -> {
+            plannerAnchor.add(Calendar.DAY_OF_MONTH, 7);
+            renderPlanner();
+        }), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        Button today = outlinedButton("Today");
+        today.setOnClickListener(v -> {
+            plannerAnchor.setTimeInMillis(System.currentTimeMillis());
+            plannerSelectedDate.setTimeInMillis(System.currentTimeMillis());
+            normalizePlannerCalendars();
+            renderPlanner();
+        });
+        LinearLayout.LayoutParams todayParams = new LinearLayout.LayoutParams(dp(92), dp(44));
+        todayParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(today, todayParams);
+        return row;
+    }
+
+    private String plannerWeekRange() {
+        Calendar start = weekStart(plannerAnchor);
+        Calendar end = (Calendar) start.clone();
+        end.add(Calendar.DAY_OF_MONTH, 6);
+        SimpleDateFormat startFormat = new SimpleDateFormat("MMM d", Locale.US);
+        SimpleDateFormat endFormat = new SimpleDateFormat("MMM d, yyyy", Locale.US);
+        return startFormat.format(start.getTime()) + " - " + endFormat.format(end.getTime());
+    }
+
+    private View plannerDayCard(Calendar day) {
+        String key = dateKey(day);
+        PlannerEntry entry = plannerEntryByDate.get(key);
+        Outfit outfit = entry == null ? null : findOutfit(entry.outfitId);
+
+        LinearLayout card = card();
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setOnClickListener(v -> renderPlannerDay(key));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout date = new LinearLayout(this);
+        date.setOrientation(LinearLayout.VERTICAL);
+        date.addView(text(new SimpleDateFormat("EEE", Locale.US).format(day.getTime()), 14, primary, true));
+        date.addView(text(String.valueOf(day.get(Calendar.DAY_OF_MONTH)), 18, primary, true));
+        top.addView(date, new LinearLayout.LayoutParams(dp(58), -2));
+
+        TextView context = text(plannerContextText(entry), 13, muted, false);
+        top.addView(context, new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(transparentIconButton(R.drawable.ic_more_vertical, ink, v -> showPlannerDayMenu(key)), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        card.addView(top);
+
+        if (outfit != null) {
+            card.addView(outfitPreview(outfit));
+            TextView name = text(value(outfit.name, "Untitled outfit"), 14, ink, true);
+            name.setPadding(dp(72), dp(2), 0, 0);
+            card.addView(name);
+            if (entry != null && entry.worn) {
+                TextView worn = text("Marked as worn", 12, primary, true);
+                worn.setPadding(dp(72), dp(2), 0, 0);
+                card.addView(worn);
+            }
+        } else if (entry != null && !isBlank(entry.outfitId)) {
+            card.addView(plannerMissingOutfitView(key));
+        } else {
+            card.addView(plannerEmptyDayView(key));
+        }
+        return card;
+    }
+
+    private View plannerEmptyDayView(String dateKey) {
+        LinearLayout empty = new LinearLayout(this);
+        empty.setGravity(Gravity.CENTER_VERTICAL);
+        empty.setPadding(dp(72), dp(8), 0, 0);
+        empty.setOnClickListener(v -> showPlannerAddSheet(dateKey));
+        TextView add = text("+", 20, primary, true);
+        add.setGravity(Gravity.CENTER);
+        add.setBackground(oval(Color.TRANSPARENT, primary, 1));
+        empty.addView(add, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(12), 0, 0, 0);
+        copy.addView(text("Add outfit", 14, ink, true));
+        copy.addView(text("No outfit planned", 12, muted, false));
+        empty.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+        return empty;
+    }
+
+    private View plannerMissingOutfitView(String dateKey) {
+        LinearLayout missing = new LinearLayout(this);
+        missing.setOrientation(LinearLayout.VERTICAL);
+        missing.setPadding(dp(72), dp(8), 0, 0);
+        missing.addView(text("Planned outfit is missing", 14, error, true));
+        missing.addView(text("Change outfit or remove this plan.", 12, muted, false));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, dp(8), 0, 0);
+        Button change = outlinedButton("Change");
+        change.setOnClickListener(v -> showPlannerAddSheet(dateKey));
+        actions.addView(change, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button remove = dangerButton("Remove");
+        remove.setOnClickListener(v -> removePlannerEntry(dateKey));
+        LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(0, dp(44), 1);
+        removeParams.setMargins(dp(8), 0, 0, 0);
+        actions.addView(remove, removeParams);
+        missing.addView(actions);
+        return missing;
+    }
+
+    private String plannerContextText(PlannerEntry entry) {
+        if (entry == null) return "Weather later · No occasion";
+        return joinNonEmpty(value(entry.weatherSummary, "Weather later"), entry.occasion);
+    }
+
+    private void renderPlannerMonth() {
+        content.addView(plannerMonthControls());
+        content.addView(plannerMonthGrid());
+        content.addView(plannerUpcomingCard());
+        Button plan = primaryButton("+ Plan outfit");
+        plan.setOnClickListener(v -> showPlannerAddSheet(dateKey(plannerSelectedDate)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(54));
+        params.setMargins(dp(36), dp(12), dp(36), 0);
+        content.addView(plan, params);
+    }
+
+    private View plannerMonthControls() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(8));
+        row.addView(iconButton(R.drawable.ic_move_left, v -> {
+            plannerAnchor.add(Calendar.MONTH, -1);
+            renderPlanner();
+        }), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView title = text(new SimpleDateFormat("MMMM yyyy", Locale.US).format(plannerAnchor.getTime()), 18, ink, true);
+        title.setGravity(Gravity.CENTER);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(iconButton(R.drawable.ic_move_right, v -> {
+            plannerAnchor.add(Calendar.MONTH, 1);
+            renderPlanner();
+        }), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        return row;
+    }
+
+    private View plannerMonthGrid() {
+        LinearLayout card = card();
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        LinearLayout weekdays = new LinearLayout(this);
+        String[] labels = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        for (String label : labels) {
+            TextView day = text(label, 11, muted, true);
+            day.setGravity(Gravity.CENTER);
+            weekdays.addView(day, new LinearLayout.LayoutParams(0, dp(28), 1));
+        }
+        card.addView(weekdays);
+
+        Calendar cursor = monthGridStart(plannerAnchor);
+        for (int rowIndex = 0; rowIndex < 6; rowIndex++) {
+            LinearLayout row = new LinearLayout(this);
+            for (int col = 0; col < 7; col++) {
+                Calendar day = (Calendar) cursor.clone();
+                row.addView(monthDayCell(day), new LinearLayout.LayoutParams(0, dp(58), 1));
+                cursor.add(Calendar.DAY_OF_MONTH, 1);
+            }
+            card.addView(row);
+        }
+        LinearLayout legend = new LinearLayout(this);
+        legend.setGravity(Gravity.CENTER_VERTICAL);
+        legend.setPadding(0, dp(8), 0, 0);
+        legend.addView(text("● Outfit planned", 12, primary, false), new LinearLayout.LayoutParams(0, -2, 1));
+        legend.addView(text("● No plan", 12, muted, false), new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(legend);
+        return card;
+    }
+
+    private View monthDayCell(Calendar day) {
+        String key = dateKey(day);
+        boolean sameMonth = day.get(Calendar.MONTH) == plannerAnchor.get(Calendar.MONTH);
+        boolean selected = key.equals(dateKey(plannerSelectedDate));
+        PlannerEntry entry = plannerEntryByDate.get(key);
+
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER);
+        cell.setPadding(dp(2), dp(2), dp(2), dp(2));
+        cell.setBackground(rounded(selected ? primaryContainer : Color.TRANSPARENT, 18, Color.TRANSPARENT, 0));
+        cell.setOnClickListener(v -> {
+            plannerSelectedDate.setTimeInMillis(day.getTimeInMillis());
+            renderPlanner();
+        });
+        TextView number = text(String.valueOf(day.get(Calendar.DAY_OF_MONTH)), 13, sameMonth ? ink : muted, selected);
+        number.setGravity(Gravity.CENTER);
+        cell.addView(number);
+        TextView dot = text(entry != null && !isBlank(entry.outfitId) ? "●" : "·", 16, entry != null && !isBlank(entry.outfitId) ? primary : palette.outlineVariant, true);
+        dot.setGravity(Gravity.CENTER);
+        cell.addView(dot);
+        return cell;
+    }
+
+    private View plannerUpcomingCard() {
+        LinearLayout card = card();
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(text("Upcoming (Next 7 days)", 16, ink, true), new LinearLayout.LayoutParams(0, -2, 1));
+        TextView viewAll = text("View all", 13, primary, true);
+        viewAll.setGravity(Gravity.CENTER);
+        viewAll.setOnClickListener(v -> {
+            plannerMonthMode = false;
+            renderPlanner();
+        });
+        header.addView(viewAll, new LinearLayout.LayoutParams(dp(72), dp(40)));
+        card.addView(header);
+        boolean added = false;
+        Calendar day = Calendar.getInstance();
+        startOfDay(day);
+        for (int i = 0; i < 7; i++) {
+            PlannerEntry entry = plannerEntryByDate.get(dateKey(day));
+            Outfit outfit = entry == null ? null : findOutfit(entry.outfitId);
+            if (outfit != null) {
+                card.addView(upcomingPlannerRow(day, outfit, entry));
+                added = true;
+            }
+            day.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        if (!added) {
+            TextView empty = text("No outfits planned in the next 7 days.", 13, muted, false);
+            empty.setPadding(0, dp(8), 0, 0);
+            card.addView(empty);
+        }
+        return card;
+    }
+
+    private View upcomingPlannerRow(Calendar day, Outfit outfit, PlannerEntry entry) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(8));
+        row.setOnClickListener(v -> renderPlannerDay(dateKey(day)));
+        TextView date = text(new SimpleDateFormat("EEE, MMM d", Locale.US).format(day.getTime()), 12, muted, false);
+        row.addView(date, new LinearLayout.LayoutParams(dp(92), -2));
+        row.addView(outfitMiniPreview(outfit), new LinearLayout.LayoutParams(dp(58), dp(46)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(10), 0, 0, 0);
+        copy.addView(text(value(outfit.name, "Untitled outfit"), 13, ink, true));
+        copy.addView(text(value(entry.occasion, "No occasion"), 12, muted, false));
+        row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+        return row;
+    }
+
+    private void renderPlannerDay(String dateKey) {
+        activeTab = "plannerDay";
+        plannerSelectedDate.setTimeInMillis(calendarForDateKey(dateKey).getTimeInMillis());
+        renderTopBar(plannerDayTitle(plannerSelectedDate), true, null, false);
+        topBar.addView(iconButton(R.drawable.ic_more_vertical, v -> showPlannerDayMenu(dateKey)), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        updateBottomNavigation();
+        useScrollContent();
+        content.removeAllViews();
+        content.setPadding(dp(18), dp(8), dp(18), dp(32));
+
+        PlannerEntry entry = plannerEntryByDate.get(dateKey);
+        Outfit outfit = entry == null ? null : findOutfit(entry.outfitId);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setPadding(0, 0, 0, dp(12));
+        chips.addView(plannerContextChip("☁", value(entry == null ? "" : entry.weatherSummary, "Weather later")));
+        chips.addView(plannerContextChip("▣", value(entry == null ? "" : entry.occasion, "No occasion")));
+        content.addView(chips);
+
+        if (outfit != null) {
+            content.addView(plannerHeroOutfit(outfit));
+        } else if (entry != null && !isBlank(entry.outfitId)) {
+            content.addView(plannerMissingOutfitView(dateKey));
+        } else {
+            content.addView(plannerEmptyDayView(dateKey));
+        }
+        content.addView(plannerDayActions(dateKey, entry));
+        content.addView(plannerNotesCard(dateKey, entry));
+    }
+
+    private View plannerContextChip(String icon, String label) {
+        TextView chip = text(icon + "  " + label, 13, ink, false);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(12), 0, dp(12), 0);
+        chip.setBackground(rounded(Color.TRANSPARENT, 20, palette.outlineVariant, 1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(40));
+        params.setMargins(0, 0, dp(8), 0);
+        chip.setLayoutParams(params);
+        return chip;
+    }
+
+    private View plannerHeroOutfit(Outfit outfit) {
+        LinearLayout card = card();
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.addView(outfitReviewPreviewFor(outfit));
+        LinearLayout title = new LinearLayout(this);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setPadding(0, dp(10), 0, 0);
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(text(value(outfit.name, "Untitled outfit"), 18, ink, true));
+        copy.addView(text("Planned outfit", 13, muted, false));
+        title.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView heart = text("♡", 28, ink, false);
+        heart.setGravity(Gravity.CENTER);
+        title.addView(heart, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        card.addView(title);
+        return card;
+    }
+
+    private View plannerDayActions(String dateKey, PlannerEntry entry) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(0, dp(8), 0, dp(8));
+        row.addView(plannerActionButton("↔", "Change\noutfit", v -> showPlannerAddSheet(dateKey)), new LinearLayout.LayoutParams(0, dp(76), 1));
+        row.addView(plannerActionButton("✎", "Notes", v -> editPlannerNotes(dateKey)), new LinearLayout.LayoutParams(0, dp(76), 1));
+        row.addView(plannerActionButton("✓", entry != null && entry.worn ? "Mark\nunworn" : "Mark\nworn", v -> togglePlannerWorn(dateKey)), new LinearLayout.LayoutParams(0, dp(76), 1));
+        return row;
+    }
+
+    private View plannerActionButton(String icon, String label, View.OnClickListener listener) {
+        LinearLayout button = new LinearLayout(this);
+        button.setOrientation(LinearLayout.VERTICAL);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(4), dp(6), dp(4), dp(6));
+        button.setBackground(rounded(Color.WHITE, 16, palette.outlineVariant, 1));
+        button.setOnClickListener(listener);
+        button.addView(text(icon, 18, ink, true));
+        TextView copy = text(label, 11, ink, true);
+        copy.setGravity(Gravity.CENTER);
+        button.addView(copy);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(76), 1);
+        params.setMargins(dp(4), 0, dp(4), 0);
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    private View plannerNotesCard(String dateKey, PlannerEntry entry) {
+        LinearLayout card = card();
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(text("Notes", 15, ink, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(transparentIconButton(R.drawable.ic_edit, primary, v -> editPlannerNotes(dateKey)), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        card.addView(header);
+        card.addView(text(value(entry == null ? "" : entry.notes, "No notes added."), 14, muted, false));
+        return card;
+    }
+
+    private void showPlannerDayMenu(String dateKey) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        Dialog[] holder = new Dialog[1];
+        menu.addView(menuRow(R.drawable.ic_add_outfit, "Change outfit", "Choose, build, or ask AI", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showPlannerAddSheet(dateKey);
+        }));
+        menu.addView(menuRow(R.drawable.ic_detail_tag, "Occasion", "Set day context", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            editPlannerOccasion(dateKey);
+        }));
+        menu.addView(menuRow(R.drawable.ic_detail_notes, "Notes", "Edit day notes", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            editPlannerNotes(dateKey);
+        }));
+        menu.addView(menuRow(R.drawable.ic_delete, "Remove plan", "Clear this day", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            removePlannerEntry(dateKey);
+        }));
+        holder[0] = showMaterialDialog("Plan options", menu, getString(R.string.close), null, null, null);
+    }
+
+    private void showPlannerAddSheet(String dateKey) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        Dialog[] holder = new Dialog[1];
+        menu.addView(menuRow(R.drawable.ic_add_outfit, "Choose existing outfit", "Pick from saved outfits", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showPlannerOutfitPicker(dateKey);
+        }));
+        menu.addView(menuRow(R.drawable.ic_clothes, "Build from clothes", "Select individual items", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            pendingPlannerDateKey = dateKey;
+            renderOutfitForm(null);
+        }));
+        menu.addView(menuRow(R.drawable.ic_openai, "Ask AI", "Get outfit suggestions", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            if (clothes.isEmpty()) {
+                Toast.makeText(this, getString(R.string.inspiration_empty_clothes), Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (isBlank(openAiApiKey)) {
+                Toast.makeText(this, getString(R.string.openai_api_key_not_set), Toast.LENGTH_LONG).show();
+                renderCategories();
+                return;
+            }
+            pendingPlannerDateKey = dateKey;
+            createOutfitInspiration();
+        }));
+        holder[0] = showMaterialDialog("Add outfit", menu, getString(R.string.close), null, null, null);
+    }
+
+    private void showPlannerOutfitPicker(String dateKey) {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        Dialog[] holder = new Dialog[1];
+        if (outfits.isEmpty()) {
+            list.addView(text("No saved outfits yet.", 14, muted, false));
+        } else {
+            for (Outfit outfit : outfits) {
+                list.addView(plannerOutfitPickerRow(outfit, dateKey, holder));
+            }
+        }
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(list);
+        scroller.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(420)));
+        holder[0] = showMaterialDialog("Choose outfit", scroller, getString(R.string.close), null, null, null);
+    }
+
+    private View plannerOutfitPickerRow(Outfit outfit, String dateKey, Dialog[] holder) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(8));
+        row.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            assignOutfitToPlannerDate(dateKey, outfit);
+        });
+        row.addView(outfitMiniPreview(outfit), new LinearLayout.LayoutParams(dp(68), dp(56)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(12), 0, 0, 0);
+        copy.addView(text(value(outfit.name, "Untitled outfit"), 15, ink, true));
+        copy.addView(text(outfitItemNames(outfit), 12, muted, false));
+        row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+        return row;
+    }
+
+    private View outfitMiniPreview(Outfit outfit) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER);
+        row.setBackground(rounded(palette.softSurface(), 12, palette.outlineVariant, 1));
+        int added = 0;
+        for (String id : outfit.clothingIds) {
+            ClothingItem item = findItem(id);
+            if (item == null) continue;
+            ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            image.setPadding(dp(3), dp(3), dp(3), dp(3));
+            if (!isBlank(item.imageUri)) {
+                loadImage(image, item.imageUri, categoryDrawable(item.category), muted, 64);
+            } else {
+                image.setImageResource(categoryDrawable(item.category));
+                image.setColorFilter(muted);
+            }
+            row.addView(image, new LinearLayout.LayoutParams(0, -1, 1));
+            added++;
+            if (added >= 3) break;
+        }
+        if (added == 0) {
+            ImageView icon = iconView(R.drawable.ic_outfit);
+            icon.setColorFilter(muted);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        }
+        return row;
+    }
+
+    private View outfitReviewPreviewFor(Outfit outfit) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(0, 0, 0, 0);
+        HorizontalScrollView scroller = new HorizontalScrollView(this);
+        scroller.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        int added = 0;
+        for (String id : outfit.clothingIds) {
+            ClothingItem item = findItem(id);
+            if (item == null) continue;
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(120), dp(150));
+            params.setMargins(added == 0 ? 0 : dp(8), 0, 0, 0);
+            row.addView(outfitReviewPreviewTile(item), params);
+            added++;
+        }
+        scroller.addView(row);
+        card.addView(scroller);
+        return card;
+    }
+
+    private void assignOutfitToPlannerDate(String dateKey, Outfit outfit) {
+        PlannerEntry entry = plannerEntryForDate(dateKey, true);
+        entry.outfitId = outfit.id;
+        if (isBlank(entry.occasion)) {
+            entry.occasion = outfit.occasion;
+        }
+        savePlannerState();
+        Toast.makeText(this, "Outfit planned", Toast.LENGTH_SHORT).show();
+        renderPlannerDay(dateKey);
+    }
+
+    private void editPlannerOccasion(String dateKey) {
+        PlannerEntry entry = plannerEntryForDate(dateKey, true);
+        showOccasionPicker(entry.occasion, value -> {
+            entry.occasion = value;
+            savePlannerState();
+        }, () -> renderPlannerDay(dateKey));
+    }
+
+    private void editPlannerNotes(String dateKey) {
+        PlannerEntry entry = plannerEntryForDate(dateKey, true);
+        EditText input = input("Notes");
+        input.setMinLines(3);
+        input.setSingleLine(false);
+        input.setText(entry.notes);
+        showMaterialDialog("Notes", input, "Cancel", "Save", null, () -> {
+            entry.notes = input.getText().toString().trim();
+            savePlannerState();
+            renderPlannerDay(dateKey);
+        });
+    }
+
+    private void togglePlannerWorn(String dateKey) {
+        PlannerEntry entry = plannerEntryForDate(dateKey, true);
+        entry.worn = !entry.worn;
+        savePlannerState();
+        renderPlannerDay(dateKey);
+    }
+
+    private void removePlannerEntry(String dateKey) {
+        PlannerEntry entry = plannerEntryByDate.remove(dateKey);
+        if (entry != null) {
+            plannerEntries.remove(entry);
+            store.savePlannerEntries(plannerEntries);
+        }
+        if (activeTab.equals("plannerDay")) {
+            renderPlannerDay(dateKey);
+        } else {
+            renderPlanner();
+        }
+    }
+
+    private PlannerEntry plannerEntryForDate(String dateKey, boolean create) {
+        PlannerEntry entry = plannerEntryByDate.get(dateKey);
+        if (entry == null && create) {
+            entry = new PlannerEntry(dateKey);
+            plannerEntries.add(entry);
+            plannerEntryByDate.put(dateKey, entry);
+        }
+        return entry;
+    }
+
+    private void savePlannerState() {
+        List<PlannerEntry> empty = new ArrayList<>();
+        for (PlannerEntry entry : plannerEntries) {
+            if (isBlank(entry.outfitId) && isBlank(entry.occasion) && isBlank(entry.notes) && !entry.worn) {
+                empty.add(entry);
+            }
+        }
+        plannerEntries.removeAll(empty);
+        rebuildPlannerIndex();
+        store.savePlannerEntries(plannerEntries);
     }
 
     private View clothesStickyHeader() {
@@ -2016,7 +2738,18 @@ public class MainActivity extends Activity {
     }
 
     private void showColorPicker(String currentValue, FieldUpdater updater, Runnable afterSave) {
-        Set<String> selected = selectedColorNames(currentValue);
+        showColorPicker(currentValue, CLOTHING_COLORS, updater, afterSave);
+    }
+
+    private void showProfileColorPicker(String title, String currentValue, ColorOption[] options, FieldUpdater updater) {
+        showColorPicker(currentValue, options, value -> {
+            updater.update(value);
+            renderAiProfile();
+        }, () -> { });
+    }
+
+    private void showColorPicker(String currentValue, ColorOption[] options, FieldUpdater updater, Runnable afterSave) {
+        Set<String> selected = selectedColorNames(currentValue, options);
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -2035,18 +2768,18 @@ public class MainActivity extends Activity {
         List<FrameLayout> swatches = new ArrayList<>();
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        for (int rowIndex = 0; rowIndex < Math.ceil(CLOTHING_COLORS.length / 6f); rowIndex++) {
+        for (int rowIndex = 0; rowIndex < Math.ceil(options.length / 6f); rowIndex++) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int col = 0; col < 6; col++) {
                 int index = rowIndex * 6 + col;
-                if (index >= CLOTHING_COLORS.length) {
+                if (index >= options.length) {
                     TextView spacer = new TextView(this);
                     row.addView(spacer, new LinearLayout.LayoutParams(0, dp(54), 1));
                     continue;
                 }
-                ColorOption option = CLOTHING_COLORS[index];
+                ColorOption option = options[index];
                 FrameLayout swatch = colorSwatch(option, selected.contains(option.name));
                 swatch.setOnClickListener(v -> {
                     if (selected.contains(option.name)) {
@@ -2158,13 +2891,17 @@ public class MainActivity extends Activity {
     }
 
     private Set<String> selectedColorNames(String value) {
+        return selectedColorNames(value, CLOTHING_COLORS);
+    }
+
+    private Set<String> selectedColorNames(String value, ColorOption[] options) {
         Set<String> selected = new LinkedHashSet<>();
         if (isBlank(value)) return selected;
         String normalized = value.replace(",", "·").replace("/", "·");
         String[] parts = normalized.split("·");
         for (String part : parts) {
             String token = part.trim();
-            for (ColorOption option : CLOTHING_COLORS) {
+            for (ColorOption option : options) {
                 if (option.name.equalsIgnoreCase(token)) {
                     selected.add(option.name);
                     break;
@@ -2559,16 +3296,10 @@ public class MainActivity extends Activity {
     private void renderOutfits() {
         activeTab = "outfits";
         renderTopBar("Outfits", false);
-        setStickyBar(outfitTabs(), 22);
         updateBottomNavigation();
         useScrollContent();
         content.removeAllViews();
         content.setPadding(dp(22), dp(2), dp(22), dp(28));
-
-        if (outfitInspirationTab) {
-            renderInspirationView();
-            return;
-        }
 
         if (clothes.isEmpty()) {
             content.addView(emptyState("Add clothing items before creating outfits."));
@@ -2584,33 +3315,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View outfitTabs() {
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setPadding(0, dp(4), 0, dp(10));
-        tabs.addView(outfitTab("My Outfits", !outfitInspirationTab, () -> {
-            outfitInspirationTab = false;
-            renderOutfits();
-        }), new LinearLayout.LayoutParams(0, dp(48), 1));
-        tabs.addView(outfitTab("Inspiration", outfitInspirationTab, () -> {
-            outfitInspirationTab = true;
-            renderOutfits();
-        }), new LinearLayout.LayoutParams(0, dp(48), 1));
-        return tabs;
-    }
-
-    private View outfitTab(String label, boolean active, Runnable action) {
-        LinearLayout tab = new LinearLayout(this);
-        tab.setOrientation(LinearLayout.VERTICAL);
-        tab.setGravity(Gravity.CENTER);
-        tab.setOnClickListener(v -> action.run());
-        TextView text = text(label, 14, active ? ink : muted, true);
-        text.setGravity(Gravity.CENTER);
-        tab.addView(text, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView indicator = new TextView(this);
-        indicator.setBackground(rounded(active ? primary : palette.outlineVariant, 2, Color.TRANSPARENT, 0));
-        tab.addView(indicator, new LinearLayout.LayoutParams(-1, dp(active ? 3 : 1)));
-        return tab;
+    private void renderInspiration() {
+        activeTab = "inspiration";
+        renderTopBar(getString(R.string.nav_inspiration), false);
+        updateBottomNavigation();
+        useScrollContent();
+        content.removeAllViews();
+        content.setPadding(dp(22), dp(2), dp(22), dp(28));
+        renderInspirationView();
     }
 
     private void renderInspirationView() {
@@ -2647,6 +3359,41 @@ public class MainActivity extends Activity {
 
         content.addView(card);
         content.addView(outfitDedupeCard());
+        content.addView(wardrobeGapCard());
+    }
+
+    private View wardrobeGapCard() {
+        LinearLayout card = card();
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.addView(text(getString(R.string.wardrobe_gap_title), 20, ink, true));
+
+        String message;
+        if (clothes.isEmpty()) {
+            message = getString(R.string.wardrobe_gap_empty_clothes);
+        } else if (isBlank(openAiApiKey)) {
+            message = getString(R.string.wardrobe_gap_empty_key);
+        } else {
+            message = getString(R.string.wardrobe_gap_ready);
+        }
+        TextView body = text(message, 14, muted, false);
+        body.setPadding(0, dp(6), 0, dp(8));
+        card.addView(body);
+
+        if (!clothes.isEmpty() && !isBlank(openAiApiKey)) {
+            Button propose = textButton(wardrobeGapLoading
+                    ? getString(R.string.analyzing_wardrobe_gaps)
+                    : getString(R.string.analyze_wardrobe_gaps));
+            propose.setGravity(Gravity.CENTER);
+            propose.setEnabled(!wardrobeGapLoading);
+            propose.setOnClickListener(v -> analyzeWardrobeGaps());
+            card.addView(propose, new LinearLayout.LayoutParams(-1, dp(48)));
+        } else if (isBlank(openAiApiKey)) {
+            Button settings = textButton(getString(R.string.openai_api_key));
+            settings.setGravity(Gravity.CENTER);
+            settings.setOnClickListener(v -> renderCategories());
+            card.addView(settings, new LinearLayout.LayoutParams(-1, dp(48)));
+        }
+        return card;
     }
 
     private View outfitDedupeCard() {
@@ -2677,29 +3424,38 @@ public class MainActivity extends Activity {
     }
 
     private int outfitCleanupIssueCount() {
-        return findDuplicateOutfits().size() + findSubsetOutfitOverlaps().size();
+        return findExactOutfitOverlaps().size() + findSubsetOutfitOverlaps().size();
     }
 
     private void reviewOutfitDeduplication() {
-        List<Outfit> duplicates = findDuplicateOutfits();
-        if (!duplicates.isEmpty()) {
-            outfits.removeAll(duplicates);
-            store.saveOutfits(outfits);
-            Toast.makeText(this, getString(R.string.deduplicate_outfits_done, duplicates.size()), Toast.LENGTH_SHORT).show();
+        List<OutfitOverlap> exactOverlaps = findExactOutfitOverlaps();
+        if (!exactOverlaps.isEmpty()) {
+            showOutfitCleanupChoice(
+                    exactOverlaps.get(0),
+                    getString(R.string.exact_outfits_title),
+                    getString(R.string.exact_outfits_body),
+                    getString(R.string.exact_outfit_first),
+                    getString(R.string.exact_outfit_second)
+            );
+            return;
         }
 
         List<OutfitOverlap> overlaps = findSubsetOutfitOverlaps();
         if (overlaps.isEmpty()) {
-            if (duplicates.isEmpty()) {
-                Toast.makeText(this, getString(R.string.deduplicate_outfits_none), Toast.LENGTH_SHORT).show();
-            }
+            Toast.makeText(this, getString(R.string.deduplicate_outfits_none), Toast.LENGTH_SHORT).show();
             renderOutfits();
         } else {
-            showSubsetOutfitChoice(overlaps.get(0));
+            showOutfitCleanupChoice(
+                    overlaps.get(0),
+                    getString(R.string.subset_outfits_title),
+                    getString(R.string.subset_outfits_body),
+                    getString(R.string.subset_outfit_smaller),
+                    getString(R.string.subset_outfit_larger)
+            );
         }
     }
 
-    private void showSubsetOutfitChoice(OutfitOverlap overlap) {
+    private void showOutfitCleanupChoice(OutfitOverlap overlap, String title, String message, String firstLabel, String secondLabel) {
         if (!outfits.contains(overlap.smaller) || !outfits.contains(overlap.larger)) {
             reviewOutfitDeduplication();
             return;
@@ -2707,17 +3463,17 @@ public class MainActivity extends Activity {
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        TextView explanation = text(getString(R.string.subset_outfits_body), 14, muted, false);
+        TextView explanation = text(message, 14, muted, false);
         explanation.setPadding(0, 0, 0, dp(10));
         body.addView(explanation);
 
         Dialog[] holder = new Dialog[1];
-        body.addView(subsetOutfitChoiceRow(overlap.smaller, getString(R.string.subset_outfit_smaller), holder));
-        body.addView(subsetOutfitChoiceRow(overlap.larger, getString(R.string.subset_outfit_larger), holder));
-        holder[0] = showMaterialDialog(getString(R.string.subset_outfits_title), body, getString(R.string.keep_both), null, () -> renderOutfits(), null);
+        body.addView(outfitCleanupChoiceRow(overlap.smaller, firstLabel, holder));
+        body.addView(outfitCleanupChoiceRow(overlap.larger, secondLabel, holder));
+        holder[0] = showMaterialDialog(title, body, getString(R.string.keep_both), null, () -> renderOutfits(), null);
     }
 
-    private View subsetOutfitChoiceRow(Outfit outfit, String label, Dialog[] holder) {
+    private View outfitCleanupChoiceRow(Outfit outfit, String label, Dialog[] holder) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -2741,15 +3497,27 @@ public class MainActivity extends Activity {
             outfits.remove(outfit);
             store.saveOutfits(outfits);
             Toast.makeText(this, getString(R.string.outfit_deleted), Toast.LENGTH_SHORT).show();
-            List<OutfitOverlap> remaining = findSubsetOutfitOverlaps();
-            if (remaining.isEmpty()) {
-                renderOutfits();
-            } else {
-                showSubsetOutfitChoice(remaining.get(0));
-            }
+            reviewOutfitDeduplication();
         });
         row.addView(delete, new LinearLayout.LayoutParams(-1, dp(48)));
         return row;
+    }
+
+    private List<OutfitOverlap> findExactOutfitOverlaps() {
+        List<OutfitOverlap> overlaps = new ArrayList<>();
+        for (int i = 0; i < outfits.size(); i++) {
+            Outfit first = outfits.get(i);
+            Set<String> firstIds = outfitIdSet(first);
+            if (firstIds.isEmpty()) continue;
+            for (int j = i + 1; j < outfits.size(); j++) {
+                Outfit second = outfits.get(j);
+                Set<String> secondIds = outfitIdSet(second);
+                if (!secondIds.isEmpty() && firstIds.equals(secondIds)) {
+                    overlaps.add(new OutfitOverlap(first, second));
+                }
+            }
+        }
+        return overlaps;
     }
 
     private List<OutfitOverlap> findSubsetOutfitOverlaps() {
@@ -2846,7 +3614,7 @@ public class MainActivity extends Activity {
         }
 
         outfitInspirationLoading = true;
-        renderOutfits();
+        renderOutfitAiLoadingContext();
         Toast.makeText(this, getString(R.string.creating_outfit_inspiration), Toast.LENGTH_SHORT).show();
         String apiKey = openAiApiKey;
         String baseUrl = openAiBaseUrl;
@@ -2865,14 +3633,78 @@ public class MainActivity extends Activity {
             } catch (Exception exception) {
                 mainHandler.post(() -> {
                     outfitInspirationLoading = false;
-                    renderOutfits();
+                    renderOutfitAiLoadingContext();
                     Toast.makeText(this, getString(R.string.inspiration_failed) + ": " + exception.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         });
     }
 
+    private void renderOutfitAiLoadingContext() {
+        if (!isBlank(pendingPlannerDateKey)) {
+            renderPlanner();
+        } else if (activeTab.equals("inspiration")) {
+            renderInspiration();
+        } else {
+            renderOutfits();
+        }
+    }
+
+    private void analyzeWardrobeGaps() {
+        if (wardrobeGapLoading) return;
+        if (clothes.isEmpty()) {
+            Toast.makeText(this, getString(R.string.wardrobe_gap_empty_clothes), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (isBlank(openAiApiKey)) {
+            Toast.makeText(this, getString(R.string.openai_api_key_not_set), Toast.LENGTH_LONG).show();
+            renderCategories();
+            return;
+        }
+
+        wardrobeGapLoading = true;
+        renderOutfits();
+        Toast.makeText(this, getString(R.string.analyzing_wardrobe_gaps), Toast.LENGTH_SHORT).show();
+        String apiKey = openAiApiKey;
+        String baseUrl = openAiBaseUrl;
+        String model = openAiModel;
+        ioExecutor.execute(() -> {
+            try {
+                String recommendation = requestWardrobeGapSuggestion(apiKey, baseUrl, model);
+                mainHandler.post(() -> {
+                    wardrobeGapLoading = false;
+                    renderOutfits();
+                    TextView body = text(recommendation, 15, ink, false);
+                    body.setPadding(0, 0, 0, dp(4));
+                    showMaterialDialog(getString(R.string.wardrobe_gap_result_title), body, getString(R.string.close), null, null, null);
+                });
+            } catch (Exception exception) {
+                mainHandler.post(() -> {
+                    wardrobeGapLoading = false;
+                    renderOutfits();
+                    Toast.makeText(this, getString(R.string.wardrobe_gap_failed) + ": " + exception.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
     private Outfit requestOutfitSuggestion(String apiKey, String baseUrl, String model) throws IOException, JSONException {
+        String outputText = requestOpenAiText(apiKey, baseUrl, model, buildOutfitSuggestionPrompt(), 700);
+        if (isBlank(outputText)) {
+            throw new IOException("empty recommendation");
+        }
+        return parseOutfitSuggestion(outputText);
+    }
+
+    private String requestWardrobeGapSuggestion(String apiKey, String baseUrl, String model) throws IOException, JSONException {
+        String outputText = requestOpenAiText(apiKey, baseUrl, model, buildWardrobeGapPrompt(), 550);
+        if (isBlank(outputText)) {
+            throw new IOException("empty recommendation");
+        }
+        return trimLength(outputText, 1200);
+    }
+
+    private String requestOpenAiText(String apiKey, String baseUrl, String model, String prompt, int maxOutputTokens) throws IOException, JSONException {
         HttpURLConnection connection = (HttpURLConnection) new URL(openAiResponsesUrl(baseUrl)).openConnection();
         connection.setRequestMethod("POST");
         connection.setConnectTimeout(20000);
@@ -2884,8 +3716,8 @@ public class MainActivity extends Activity {
         JSONObject request = new JSONObject();
         request.put("model", normalizedOpenAiModel(model));
         request.put("store", false);
-        request.put("max_output_tokens", 700);
-        request.put("input", buildOutfitSuggestionPrompt());
+        request.put("max_output_tokens", maxOutputTokens);
+        request.put("input", prompt);
 
         byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
         try (OutputStream output = connection.getOutputStream()) {
@@ -2902,11 +3734,7 @@ public class MainActivity extends Activity {
         }
 
         JSONObject response = new JSONObject(responseText);
-        String outputText = extractOpenAiOutputText(response);
-        if (isBlank(outputText)) {
-            throw new IOException("empty recommendation");
-        }
-        return parseOutfitSuggestion(outputText);
+        return extractOpenAiOutputText(response);
     }
 
     private String buildOutfitSuggestionPrompt() throws JSONException {
@@ -2928,11 +3756,44 @@ public class MainActivity extends Activity {
 
         return "Create one practical outfit using only the wardrobe items below. "
                 + "Choose 2 to 5 items that work together. Prefer a complete outfit with top, bottom, shoes, and outerwear/accessory when available. "
-                + "Consider this wearer profile when useful: eye color=" + value(profileEyeColor, "unknown")
+                + "Consider this wearer profile when useful: gender=" + value(profileGender, "unknown")
+                + ", eye color=" + value(profileEyeColor, "unknown")
                 + ", hair color=" + value(profileHairColor, "unknown") + ". "
                 + "Use exact item ids from the wardrobe. Return only valid JSON with this shape: "
                 + "{\"name\":\"Short outfit name\",\"occasion\":\"Casual\",\"season\":\"Any season\",\"notes\":\"Why these pieces work together\",\"clothingIds\":[\"id1\",\"id2\"]}. "
                 + "Do not include markdown. Wardrobe items: " + wardrobe;
+    }
+
+    private String buildWardrobeGapPrompt() throws JSONException {
+        JSONArray wardrobe = new JSONArray();
+        Map<String, Integer> groupCounts = new LinkedHashMap<>();
+        for (ClothingItem item : clothes) {
+            JSONObject json = new JSONObject();
+            String group = categoryGroup(item.category);
+            groupCounts.put(group, groupCounts.containsKey(group) ? groupCounts.get(group) + 1 : 1);
+            json.put("name", value(item.name, item.category));
+            json.put("category", value(item.category, "Uncategorized"));
+            json.put("group", group);
+            json.put("color", value(item.color, ""));
+            json.put("season", value(item.season, ""));
+            json.put("material", value(item.material, ""));
+            json.put("notes", value(item.notes, ""));
+            wardrobe.put(json);
+        }
+
+        JSONObject counts = new JSONObject();
+        for (Map.Entry<String, Integer> entry : groupCounts.entrySet()) {
+            counts.put(entry.getKey(), entry.getValue());
+        }
+
+        return "Analyze this wardrobe and recommend what type of clothing is missing. "
+                + "Use the wearer profile only when relevant: gender=" + value(profileGender, "unknown")
+                + ", eye color=" + value(profileEyeColor, "unknown")
+                + ", hair color=" + value(profileHairColor, "unknown") + ". "
+                + "Focus on practical wardrobe gaps, versatility, seasons, and categories. "
+                + "Return concise plain text with exactly 3 recommendations. For each, include: item type, why it is missing, best color/material direction, and what existing clothes it would combine with. "
+                + "Do not mention brand names unless already in the wardrobe. Do not use markdown tables. "
+                + "Category counts: " + counts + ". Wardrobe items: " + wardrobe;
     }
 
     private String extractOpenAiOutputText(JSONObject response) {
@@ -3519,8 +4380,10 @@ public class MainActivity extends Activity {
     private void saveOutfitDraft() {
         if (outfitDraft == null) return;
         outfitDraft.updatedAt = System.currentTimeMillis();
+        Outfit savedOutfit;
         if (outfitEditingTarget == null) {
             outfits.add(0, outfitDraft);
+            savedOutfit = outfitDraft;
         } else {
             outfitEditingTarget.name = outfitDraft.name;
             outfitEditingTarget.occasion = outfitDraft.occasion;
@@ -3529,10 +4392,23 @@ public class MainActivity extends Activity {
             outfitEditingTarget.clothingIds.clear();
             outfitEditingTarget.clothingIds.addAll(outfitDraft.clothingIds);
             outfitEditingTarget.updatedAt = outfitDraft.updatedAt;
+            savedOutfit = outfitEditingTarget;
         }
         store.saveOutfits(outfits);
+        String plannerDate = pendingPlannerDateKey;
         clearOutfitDraft();
-        renderOutfits();
+        if (!isBlank(plannerDate)) {
+            pendingPlannerDateKey = "";
+            PlannerEntry entry = plannerEntryForDate(plannerDate, true);
+            entry.outfitId = savedOutfit.id;
+            if (isBlank(entry.occasion)) {
+                entry.occasion = savedOutfit.occasion;
+            }
+            savePlannerState();
+            renderPlannerDay(plannerDate);
+        } else {
+            renderOutfits();
+        }
     }
 
     private LinearLayout outfitSelectionCard(ClothingItem item, boolean selected) {
@@ -3713,11 +4589,12 @@ public class MainActivity extends Activity {
 
         content.addView(settingsSectionLabel(getString(R.string.profile_appearance)));
         LinearLayout appearance = groupedRows();
-        appearance.addView(settingsRow(R.drawable.ic_detail_color, getString(R.string.eye_color), value(profileEyeColor, getString(R.string.add_eye_color)), v -> editProfileTextField(getString(R.string.eye_color), profileEyeColor, value -> {
+        appearance.addView(settingsRow(genderIcon(profileGender), getString(R.string.gender), value(profileGender, getString(R.string.add_gender)), v -> showGenderPicker()));
+        appearance.addView(settingsRow(R.drawable.ic_detail_color, getString(R.string.eye_color), value(profileEyeColor, getString(R.string.add_eye_color)), v -> showProfileColorPicker(getString(R.string.eye_color), profileEyeColor, EYE_COLORS, value -> {
             profileEyeColor = value;
             store.saveProfileEyeColor(profileEyeColor);
         })));
-        appearance.addView(settingsRow(R.drawable.ic_detail_color, getString(R.string.hair_color), value(profileHairColor, getString(R.string.add_hair_color)), v -> editProfileTextField(getString(R.string.hair_color), profileHairColor, value -> {
+        appearance.addView(settingsRow(R.drawable.ic_detail_color, getString(R.string.hair_color), value(profileHairColor, getString(R.string.add_hair_color)), v -> showProfileColorPicker(getString(R.string.hair_color), profileHairColor, HAIR_COLORS, value -> {
             profileHairColor = value;
             store.saveProfileHairColor(profileHairColor);
         })));
@@ -3781,6 +4658,53 @@ public class MainActivity extends Activity {
             updater.update(input.getText().toString().trim());
             renderAiProfile();
         });
+    }
+
+    private void showGenderPicker() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        Dialog[] holder = new Dialog[1];
+        body.addView(genderChoiceRow(getString(R.string.gender_male), R.drawable.ic_gender_male, holder));
+        body.addView(genderChoiceRow(getString(R.string.gender_female), R.drawable.ic_gender_female, holder));
+        body.addView(genderChoiceRow(getString(R.string.gender_diverse), R.drawable.ic_gender_diverse, holder));
+        holder[0] = showMaterialDialog(getString(R.string.gender), body, "Cancel", null, null, null);
+    }
+
+    private View genderChoiceRow(String label, int iconRes, Dialog[] holder) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(64));
+        row.setPadding(dp(4), dp(8), dp(4), dp(8));
+        row.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            profileGender = label;
+            store.saveProfileGender(profileGender);
+            renderAiProfile();
+        });
+
+        ImageView icon = iconView(iconRes);
+        icon.setColorFilter(primary);
+        icon.setPadding(dp(8), dp(8), dp(8), dp(8));
+        icon.setBackground(rounded(primaryContainer, 16, Color.TRANSPARENT, 0));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        TextView title = text(label, 16, ink, true);
+        title.setPadding(dp(14), 0, 0, 0);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+
+        if (label.equals(profileGender)) {
+            TextView check = text("✓", 20, primary, true);
+            check.setGravity(Gravity.CENTER);
+            row.addView(check, new LinearLayout.LayoutParams(dp(40), dp(48)));
+        }
+        return row;
+    }
+
+    private int genderIcon(String gender) {
+        if (getString(R.string.gender_male).equals(gender)) return R.drawable.ic_gender_male;
+        if (getString(R.string.gender_female).equals(gender)) return R.drawable.ic_gender_female;
+        if (getString(R.string.gender_diverse).equals(gender)) return R.drawable.ic_gender_diverse;
+        return R.drawable.ic_info;
     }
 
     private void renderCustomCategories() {
@@ -4121,6 +5045,12 @@ public class MainActivity extends Activity {
                 }
                 backup.put("outfits", outfitsArray);
 
+                JSONArray plannerArray = new JSONArray();
+                for (PlannerEntry entry : plannerEntries) {
+                    plannerArray.put(entry.toJson());
+                }
+                backup.put("plannerEntries", plannerArray);
+
                 zip.putNextEntry(new ZipEntry("wardrobe.json"));
                 byte[] metadata = backup.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 zip.write(metadata);
@@ -4242,6 +5172,17 @@ public class MainActivity extends Activity {
             }
         }
 
+        List<PlannerEntry> importedPlannerEntries = new ArrayList<>();
+        JSONArray plannerArray = backup.optJSONArray("plannerEntries");
+        if (plannerArray != null) {
+            for (int i = 0; i < plannerArray.length(); i++) {
+                PlannerEntry entry = PlannerEntry.fromJson(plannerArray.getJSONObject(i));
+                if (!isBlank(entry.dateKey)) {
+                    importedPlannerEntries.add(entry);
+                }
+            }
+        }
+
         List<String> importedCategories = new ArrayList<>();
         JSONArray categoryArray = backup.optJSONArray("categories");
         if (categoryArray != null) {
@@ -4258,6 +5199,9 @@ public class MainActivity extends Activity {
         rebuildItemIndex();
         outfits.clear();
         outfits.addAll(importedOutfits);
+        plannerEntries.clear();
+        plannerEntries.addAll(importedPlannerEntries);
+        rebuildPlannerIndex();
         categories.clear();
         categories.addAll(importedCategories);
         currency = backup.optString("currency", "$");
@@ -4265,6 +5209,7 @@ public class MainActivity extends Activity {
 
         store.saveClothes(clothes);
         store.saveOutfits(outfits);
+        store.savePlannerEntries(plannerEntries);
         store.saveCategories(categories);
         store.saveCurrency(currency);
         store.savePrimaryColor(importedPrimary);
@@ -4590,6 +5535,62 @@ public class MainActivity extends Activity {
 
     private ClothingItem findItem(String id) {
         return itemById.get(id);
+    }
+
+    private Outfit findOutfit(String id) {
+        if (isBlank(id)) return null;
+        for (Outfit outfit : outfits) {
+            if (outfit.id.equals(id)) return outfit;
+        }
+        return null;
+    }
+
+    private String dateKey(Calendar calendar) {
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.getTime());
+    }
+
+    private Calendar calendarForDateKey(String key) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.setFirstDayOfWeek(Calendar.MONDAY);
+        try {
+            Date date = new SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(key);
+            if (date != null) calendar.setTime(date);
+        } catch (Exception ignored) {
+        }
+        startOfDay(calendar);
+        return calendar;
+    }
+
+    private void startOfDay(Calendar calendar) {
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+    }
+
+    private Calendar weekStart(Calendar source) {
+        Calendar start = (Calendar) source.clone();
+        start.setFirstDayOfWeek(Calendar.MONDAY);
+        startOfDay(start);
+        int day = start.get(Calendar.DAY_OF_WEEK);
+        int delta = day == Calendar.SUNDAY ? -6 : Calendar.MONDAY - day;
+        start.add(Calendar.DAY_OF_MONTH, delta);
+        return start;
+    }
+
+    private Calendar monthGridStart(Calendar source) {
+        Calendar start = (Calendar) source.clone();
+        start.setFirstDayOfWeek(Calendar.MONDAY);
+        start.set(Calendar.DAY_OF_MONTH, 1);
+        startOfDay(start);
+        int day = start.get(Calendar.DAY_OF_WEEK);
+        int delta = day == Calendar.SUNDAY ? -6 : Calendar.MONDAY - day;
+        start.add(Calendar.DAY_OF_MONTH, delta);
+        return start;
+    }
+
+    private String plannerDayTitle(Calendar day) {
+        return new SimpleDateFormat("EEEE, MMM d", Locale.US).format(day.getTime());
     }
 
     private String joinNonEmpty(String... values) {
