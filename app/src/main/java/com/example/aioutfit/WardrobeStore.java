@@ -29,6 +29,12 @@ public class WardrobeStore {
     private static final String KEY_PROFILE_GENDER = "profileGender";
     private static final String KEY_PROFILE_EYE_COLOR = "profileEyeColor";
     private static final String KEY_PROFILE_HAIR_COLOR = "profileHairColor";
+    private static final String KEY_PROFILE_STYLE = "profileStyle";
+    private static final String KEY_SAVED_SHIRT_SIZE = "savedShirtSize";
+    private static final String KEY_SAVED_PANTS_WAIST = "savedPantsWaist";
+    private static final String KEY_SAVED_PANTS_LENGTH = "savedPantsLength";
+    private static final String KEY_SAVED_SHOE_SIZE = "savedShoeSize";
+    private static final String KEY_WARDROBE_GAP_ANALYSIS = "wardrobeGapAnalysis";
     private static final String DEFAULT_OPENAI_BASE_URL = "https://eu.api.openai.com/v1";
     private static final String DEFAULT_OPENAI_MODEL = "gpt-5.4";
     private final SharedPreferences prefs;
@@ -218,6 +224,67 @@ public class WardrobeStore {
 
     public void saveProfileHairColor(String color) {
         prefs.edit().putString(KEY_PROFILE_HAIR_COLOR, color == null ? "" : color.trim()).apply();
+    }
+
+    public String loadProfileStyle() {
+        return prefs.getString(KEY_PROFILE_STYLE, "");
+    }
+
+    public void saveProfileStyle(String style) {
+        prefs.edit().putString(KEY_PROFILE_STYLE, style == null ? "" : style.trim()).apply();
+    }
+
+    public String loadSavedShirtSize() {
+        return prefs.getString(KEY_SAVED_SHIRT_SIZE, "");
+    }
+
+    public void saveSavedShirtSize(String size) {
+        prefs.edit().putString(KEY_SAVED_SHIRT_SIZE, size == null ? "" : size.trim()).apply();
+    }
+
+    public String loadSavedPantsWaist() {
+        return prefs.getString(KEY_SAVED_PANTS_WAIST, "");
+    }
+
+    public void saveSavedPantsWaist(String waist) {
+        prefs.edit().putString(KEY_SAVED_PANTS_WAIST, waist == null ? "" : waist.trim()).apply();
+    }
+
+    public String loadSavedPantsLength() {
+        return prefs.getString(KEY_SAVED_PANTS_LENGTH, "");
+    }
+
+    public void saveSavedPantsLength(String length) {
+        prefs.edit().putString(KEY_SAVED_PANTS_LENGTH, length == null ? "" : length.trim()).apply();
+    }
+
+    public String loadSavedShoeSize() {
+        return prefs.getString(KEY_SAVED_SHOE_SIZE, "");
+    }
+
+    public void saveSavedShoeSize(String size) {
+        prefs.edit().putString(KEY_SAVED_SHOE_SIZE, size == null ? "" : size.trim()).apply();
+    }
+
+    public WardrobeGapAnalysis loadWardrobeGapAnalysis() {
+        String saved = prefs.getString(KEY_WARDROBE_GAP_ANALYSIS, "");
+        if (saved == null || saved.trim().isEmpty()) return null;
+        try {
+            return WardrobeGapAnalysis.fromJson(new JSONObject(saved));
+        } catch (JSONException exception) {
+            return null;
+        }
+    }
+
+    public void saveWardrobeGapAnalysis(WardrobeGapAnalysis analysis) {
+        if (analysis == null) {
+            prefs.edit().remove(KEY_WARDROBE_GAP_ANALYSIS).apply();
+            return;
+        }
+        try {
+            prefs.edit().putString(KEY_WARDROBE_GAP_ANALYSIS, analysis.toJson().toString()).apply();
+        } catch (JSONException ignored) {
+        }
     }
 
     private JSONArray readArray(String key) {

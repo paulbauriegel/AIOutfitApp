@@ -14,6 +14,7 @@ public class Outfit {
     public String occasion;
     public String season;
     public String notes;
+    public boolean favorite;
     public final List<String> clothingIds = new ArrayList<>();
     public long updatedAt;
 
@@ -33,6 +34,7 @@ public class Outfit {
         json.put("occasion", value(occasion));
         json.put("season", value(season));
         json.put("notes", value(notes));
+        json.put("favorite", favorite);
         json.put("updatedAt", updatedAt);
         JSONArray ids = new JSONArray();
         for (String clothingId : clothingIds) {
@@ -48,6 +50,7 @@ public class Outfit {
         outfit.occasion = json.optString("occasion");
         outfit.season = json.optString("season");
         outfit.notes = json.optString("notes");
+        outfit.favorite = json.optBoolean("favorite", false);
         outfit.updatedAt = json.optLong("updatedAt", System.currentTimeMillis());
         JSONArray ids = json.optJSONArray("clothingIds");
         if (ids != null) {

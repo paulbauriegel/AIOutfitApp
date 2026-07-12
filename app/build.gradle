@@ -23,5 +23,6 @@ android {
 }
 
 dependencies {
+    implementation "androidx.core:core:1.2.0"
     implementation "com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1"
 }

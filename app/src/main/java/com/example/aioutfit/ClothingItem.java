@@ -20,10 +20,12 @@ public class ClothingItem {
     public String price;
     public String brand;
     public String material;
+    public String damage;
     public String care;
     public String notes;
     public String link;
     public String imageUri;
+    public boolean favorite;
     public final List<String> imageUris = new ArrayList<>();
     public long addedAt;
     public long updatedAt;
@@ -51,10 +53,12 @@ public class ClothingItem {
         json.put("price", value(price));
         json.put("brand", value(brand));
         json.put("material", value(material));
+        json.put("damage", value(damage));
         json.put("care", value(care));
         json.put("notes", value(notes));
         json.put("link", value(link));
         json.put("imageUri", value(imageUri));
+        json.put("favorite", favorite);
         JSONArray images = new JSONArray();
         for (String uri : imageUris) {
             if (uri != null && !uri.trim().isEmpty()) {
@@ -79,10 +83,12 @@ public class ClothingItem {
         item.price = json.optString("price");
         item.brand = json.optString("brand");
         item.material = json.optString("material");
+        item.damage = json.optString("damage");
         item.care = json.optString("care");
         item.notes = json.optString("notes");
         item.link = json.optString("link");
         item.imageUri = json.optString("imageUri");
+        item.favorite = json.optBoolean("favorite", false);
         JSONArray images = json.optJSONArray("imageUris");
         if (images != null) {
             for (int i = 0; i < images.length(); i++) {
@@ -121,8 +127,11 @@ public class ClothingItem {
                 || contains(price, needle)
                 || contains(brand, needle)
                 || contains(material, needle)
+                || contains(damage, needle)
+                || contains(care, needle)
                 || contains(notes, needle)
-                || contains(link, needle);
+                || contains(link, needle)
+                || (favorite && contains("favorite", needle));
     }
 
     private boolean contains(String value, String needle) {
